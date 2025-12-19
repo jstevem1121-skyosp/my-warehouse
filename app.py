@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import re
+import io
 
 # 구글 시트 URL
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY/edit#gid=0"
@@ -13,30 +13,32 @@ def get_gspread_client():
         "https://www.googleapis.com/auth/drive"
     ]
     
-    # 1. Secrets에서 데이터 가져오기
+    # 1. Secrets에서 데이터 가져오기 (딕셔너리로 복사)
     creds_info = dict(st.secrets["gcp_service_account"])
     
-    # 2. [핵심] Private Key 정밀 보정
+    # 2. [초강력 보정] 문자열을 바이트로 강제 처리
     pk = creds_info["private_key"]
     
-    # 혹시 모를 양끝의 따옴표나 공백 제거
-    pk = pk.strip().strip('"').strip("'")
-    
-    # \n 문자가 글자 그대로 들어온 경우 실제 줄바꿈으로 변경
+    # 혹시 모를 이스케이프된 줄바꿈(\n 글자 자체)을 실제 줄바꿈으로 변경
     pk = pk.replace("\\n", "\n")
     
-    # 만약 줄바꿈이 아예 없는 통짜 문자열이라면, 64자마다 줄바꿈을 넣어 암호 규격 강제 준수
-    if "\n" not in pk.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").strip():
-        header = "-----BEGIN PRIVATE KEY-----"
-        footer = "-----END PRIVATE KEY-----"
-        content = pk.replace(header, "").replace(footer, "").replace("\n", "").strip()
-        # 64자 단위로 자르기
-        lines = [content[i:i+64] for i in range(0, len(content), 64)]
-        pk = header + "\n" + "\n".join(lines) + "\n" + footer
+    # 불필요한 따옴표나 공백 완벽 제거
+    pk = pk.strip().strip('"').strip("'")
     
+    # RSA 키 규격에 맞게 헤더/푸터 재정렬 (공백 방지)
+    if "-----BEGIN PRIVATE KEY-----" in pk:
+        parts = pk.split("-----BEGIN PRIVATE KEY-----")
+        body = parts[1].split("-----END PRIVATE KEY-----")
+        # 헤더와 푸터 사이의 본문만 추출하여 줄바꿈 정리
+        content = body[0].replace(" ", "").replace("\n", "").strip()
+        
+        # 64자마다 줄바꿈을 넣은 표준 PEM 형식 재구성
+        formatted_content = "\n".join([content[i:i+64] for i in range(0, len(content), 64)])
+        pk = f"-----BEGIN PRIVATE KEY-----\n{formatted_content}\n-----END PRIVATE KEY-----\n"
+
     creds_info["private_key"] = pk
 
-    # 3. 인증 시도
+    # 3. 인증 시도 (from_service_account_info 사용)
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
@@ -57,4 +59,6 @@ try:
 
 except Exception as e:
     st.error(f"❌ 연결 실패: {e}")
-    st.exception(e) # 에러 상세 내용 출력
+    # 상세 에러 원인 분석을 위해 출력
+    st.write("에러 타입:", type(e).__name__)
+    st.exception(e)
