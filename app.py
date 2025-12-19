@@ -25,12 +25,12 @@ def check_login():
         if st.button("로그인"):
             if not user_id:
                 st.error("성함을 입력해주세요.")
-            elif pwd_input == str(st.secrets["app_password"]): # 관리자 비번
+            elif pwd_input == str(st.secrets["app_password"]): # 관리자 (1234)
                 st.session_state["logged_in"] = True
                 st.session_state["user_id"] = user_id
                 st.session_state["role"] = "admin"
                 st.rerun()
-            elif pwd_input == str(st.secrets["user_password"]): # 일반 사용자 비번
+            elif pwd_input == str(st.secrets["user_password"]): # 일반 유저 (5678)
                 st.session_state["logged_in"] = True
                 st.session_state["user_id"] = user_id
                 st.session_state["role"] = "user"
@@ -44,7 +44,6 @@ def check_login():
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_info = dict(st.secrets["gcp_service_account"])
-    # Private Key 포맷팅 로직
     pk = creds_info["private_key"]
     if "-----BEGIN PRIVATE KEY-----" in pk:
         content = pk.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "")
@@ -55,7 +54,6 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
-# --- 3. 데이터 업데이트 함수 ---
 def log_activity(log_sheet, user_id, item_name, action, result_qty):
     if log_sheet:
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -67,15 +65,17 @@ if check_login():
     role = st.session_state["role"]
     
     # 사이드바 정보
-    st.sidebar.info(f"👤 {user_id}님 ({'관리자' if role=='admin' else '일반'})")
+    st.sidebar.info(f"👤 {user_id}님 ({'관리자' if role=='admin' else '일반 사용자'})")
     if st.sidebar.button("로그아웃"):
-        st.session_state["logged_in"] = False
+        st.session_state.clear()
         st.rerun()
 
-    # --- 중요: 권한별 메뉴 구성 ---
-    menu_list = ["재고 현황", "간편 입출고"]
+    # --- 🔐 권한별 메뉴 구성 수정 ---
+    # 일반 유저는 '재고 현황'만 볼 수 있음
     if role == "admin":
-        menu_list += ["품목 관리 (등록/수정)", "활동 로그"] # 관리자일 때만 메뉴 추가
+        menu_list = ["재고 현황", "간편 입출고", "품목 관리 (등록/수정)", "활동 로그"]
+    else:
+        menu_list = ["재고 현황"] # 일반 유저용 메뉴
     
     menu = st.sidebar.radio("📋 메뉴 선택", menu_list)
 
@@ -96,11 +96,13 @@ if check_login():
         # --- 메뉴별 화면 구현 ---
         if menu == "재고 현황":
             st.subheader("📊 실시간 재고 현황")
+            st.info("💡 일반 사용자는 조회만 가능합니다. 입출고는 관리자에게 문의하세요." if role == "user" else "✅ 관리자 모드: 모든 현황을 조회 중입니다.")
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-        elif menu == "간편 입출고":
-            st.subheader("🛠️ 수량 증감 조정")
-            search = st.text_input("검색")
+        # 관리자 전용 메뉴들
+        elif menu == "간편 입출고" and role == "admin":
+            st.subheader("🛠️ 수량 증감 조정 (관리자 전용)")
+            search = st.text_input("품목 검색")
             display_df = df[df[name_col].str.contains(search, case=False)] if search else df
             for idx, row in display_df.iterrows():
                 with st.expander(f"📦 {row[name_col]} (현재: {row[qty_col]}개)"):
@@ -125,6 +127,7 @@ if check_login():
         elif menu == "품목 관리 (등록/수정)" and role == "admin":
             st.subheader("⚙️ 품목 관리 (관리자 전용)")
             t1, t2 = st.tabs(["✨ 신규 등록", "📝 정보 수정"])
+            # ... (이전과 동일한 등록/수정 코드) ...
             with t1:
                 with st.form("add"):
                     n, s, q = st.text_input("품목명"), st.text_input("규격"), st.number_input("초기 수량", 0)
@@ -148,4 +151,4 @@ if check_login():
                 st.dataframe(pd.DataFrame(logs[1:], columns=logs[0]).iloc[::-1], use_container_width=True)
 
     except Exception as e:
-        st.error(f"오류: {e}")
+        st.error(f"❌ 오류: {e}")
