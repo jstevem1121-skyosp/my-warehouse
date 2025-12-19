@@ -2,15 +2,23 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import json
 
 # --- 구글 시트 연결 설정 ---
 def get_gspread_client():
-    # 'key.json' 파일로 인증 진행
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    import json
-creds_info = st.secrets["gcp_service_account"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-    return gspread.authorize(creds)
+    
+    # 만약 Secrets 기능을 사용하신다면 아래 방식을 사용하세요
+    if "gcp_service_account" in st.secrets:
+        creds_info = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+    else:
+        # 기존처럼 key.json 파일을 사용하신다면 이 방식을 유지합니다
+        creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
+        
+        return gspread.authorize(creds) # 이 줄의 앞부분 공백을 8칸(또는 2번의 탭)으로 맞춰주세요
+
+# 이 아래부터 다시 코드가 시작됩니다...
 
 try:
     client = get_gspread_client()
@@ -86,4 +94,5 @@ if not df.empty:
             st.warning("삭제 완료!")
             st.rerun()
 else:
+
     st.info("데이터가 없습니다. 물품을 먼저 등록해주세요.")
