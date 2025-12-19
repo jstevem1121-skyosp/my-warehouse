@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "vernal-design-481723-j0",
+  "private_key_id": "d32485b03061e84ce57ce10284300dc943d380fe",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCdb0IIqVSWBgb+\nc+WdHsfdizozN3oVK4uiaUDHqsk7pNUqVNBtmkdKtmyCzg1KVQ0BzCJ2HilXPUZs\nPHeq8C7Z/7ybpak8+GFOsieBUCQFbzChqKfCTb1i1RIVQVRc3Zh50GxsAu55UY0v\nIOK1UckqabxRGauUVn18hdY8zravmNZ2C2m8qhqwkxEqnnrtBMjHSiBJBYuvE0X1\noKqtP4uraqqRVnLHDs0fDukdSUnTpUoSAAzFyydsv8quJ4jpIRp+J6BZwdjs7QMn\nAuLaqJXoo+pDy/z+lMYu/k0fTl+NmVIoisFfAKyh7BRMqkynLkAuXRY9SoA1bw3o\nu1MB92j5AgMBAAECggEAA1bOwbxFrQDnuRHgNtrmRk6jp15v2m8YARPWaeW3aupu\nEv3Fhe2VwYHo/0U7hu4S3ozj1jmBivYjvjvyFdAOTlVcPLjgxAhImBCzQczfVrYr\nA+K93CMl9yipv4WpMmcIytye0BOn1y7hnbRG2q2nZJzlf5rZxsWm17NG/fcsbMD6\njuHqWH+lQqfkbo0o1obh2AtZb1pK9d0ZgRhuDAT6R22VnIrZ8+ooldcI06uNG/uJ\n0L8xj5RyzJOpxLuOB89c2gTFw6gDr1R2CwCYr5SsiwJ/d/Th09DA7ZUmUTPodqod\nr4ZaqPnRFV18UTWry9kHN2C9jbmNqTtdBTt4HSVG+QKBgQDbSce+kcCe6C8IzEyV\nDJKddzSkGXsnul2L+Pa1/RU7rklE4+tVhSJ/xl+Wc0xkqi/wmouhD2nuh2Soe5KE\nu6o7yRESljfTWcwutTxpdCOWa347KCIX8e5TlmnPchky+hdAoUvVQgdO0dTwfIbQ\np66/iHVCOnHP5RfkR8+gLHzNOwKBgQC3ypDLgXmNChy94YavDRE54EFqAep4je4z\nIvvi7MDpJU4k00XR+VapbtsIfzCwNMIApJNOGjMb+eXvqVBdENhcDwiYvDaHWmBM\n/f9Bv2ic1J8mXkUCBS0gBlUnazt/WTPqLnedCtZc28XLSDipwvAFLXbxZJ9XB5Z4\ntpAZ23wPWwKBgAGVKbzlXmeHM3ezycW1noVGa/nXOT1TKgOtm1I67mFM47h8kKFA\nYbxcWSpD0MRVOh1ZcDKMYu5WydIxeiA9HoBp9haVQPfkiQW5RyNXtD4Mro+MvZpA\no8C0sDTQFQB6L5rGzz5NyLG37/qAW5S78RXuzTHaLCIc/CwonIYCbDArAoGAKS39\n21sbPPqzDehmIPqwjWMtxO7A9ln2sQZ5oZKidpqhM6cS0cUoIbZw5Sp6YkCv5yz4\nxFsicHZBir1JAFEx6Q6FQpOJNDKPuTB/7N9SNTF+pz4gAB/gyHgixD5GinYWJ7ZZ\nnpo7BXtIig+YgpDm7oINUHDXMszEbi+ZgfGnjlkCgYAczQPloB+arNsmrWQ9f8E1\nuonBljRhmUJlFYW7VrGS/av5tGq7a0MO4BK69/CicphFhfGxRLtwworF/1jIJq//\nWNo0LUv4wF28H67r+b4cxrO0ZbRBZjjuXoo08fuUSAciUKnp3D+StEALF8chQPQQ\n/Yza77+0QiF8Gx53a+56aQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "skyosp@vernal-design-481723-j0.iam.gserviceaccount.com",
+  "client_id": "112636889347820130865",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/skyosp%40vernal-design-481723-j0.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
