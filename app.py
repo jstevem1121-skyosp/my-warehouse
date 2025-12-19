@@ -40,11 +40,11 @@ h1ftW3WYY13niLPZWXCDMy3LX9UY8xXoUqnbWd7I3psvo31m2zg16lvxtwJyFqIp
 kdT58GTxF1Lc/l8JaYKfRs8=
 -----END PRIVATE KEY-----"""
 
-    creds_dict = {
+ creds_dict = {
       "type": "service_account",
       "project_id": "vernal-design-481723-j0",
       "private_key_id": "995db9a26656c83e05d67c754d8b7df8fb6740e7",
-      "private_key": private_key,
+      "private_key": formatted_key,
       "client_email": "skyosp@vernal-design-481723-j0.iam.gserviceaccount.com",
       "client_id": "112636889347820130865",
       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
