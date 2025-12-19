@@ -6,9 +6,9 @@ import re
 from datetime import datetime
 
 # --- 페이지 설정 ---
-st.set_page_config(page_title="개인별 창고 관리", layout="wide")
+st.set_page_config(page_title="개인별 창고 관리 시스템", layout="wide")
 
-# --- 1. 로그인 로직 (이전과 동일) ---
+# --- 1. 로그인 로직 ---
 def check_login():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
@@ -18,17 +18,17 @@ def check_login():
     if st.session_state["logged_in"]:
         return True
 
-    st.title("🔒 창고 관리 시스템")
-    user_id_input = st.text_input("사용자 성함(ID) 입력", placeholder="본인 이름을 적으세요")
+    st.title("🔒 개인별 창고 관리 시스템")
+    user_id_input = st.text_input("사용자 성함(ID)", placeholder="본인 이름을 입력하세요")
     pwd_input = st.text_input("비밀번호", type="password")
     
     if st.button("내 창고 접속"):
         if not user_id_input:
-            st.error("성함을 입력해야 합니다.")
-        elif pwd_input == str(st.secrets["app_password"]): # 관리자 (모든 창고 조회 가능)
+            st.error("성함을 입력해주세요.")
+        elif pwd_input == str(st.secrets["app_password"]):
             st.session_state.update({"logged_in": True, "user_id": user_id_input, "role": "admin"})
             st.rerun()
-        elif pwd_input == str(st.secrets["user_password"]): # 일반 (본인 창고만)
+        elif pwd_input == str(st.secrets["user_password"]):
             st.session_state.update({"logged_in": True, "user_id": user_id_input, "role": "user"})
             st.rerun()
         else:
@@ -62,63 +62,96 @@ if check_login():
         try: log_sheet = spreadsheet.worksheet("로그")
         except: log_sheet = None
 
-        # 데이터 로딩 및 필터링
+        # 데이터 로딩
         raw_data = main_sheet.get_all_records()
         full_df = pd.DataFrame(raw_data)
         
-        # 컬럼 감지
-        owner_col = next((c for c in full_df.columns if '소유' in str(c) or 'ID' in str(c)), full_df.columns[0])
-        name_col = next((c for c in full_df.columns if '품목' in str(c)), full_df.columns[1])
-        qty_col = next((c for c in full_df.columns if '수량' in str(c)), full_df.columns[3])
+        # 컬럼 인덱스 찾기
+        cols = list(full_df.columns)
+        owner_idx = next(i for i, c in enumerate(cols) if '소유' in str(c) or 'ID' in str(c))
+        name_idx = next(i for i, c in enumerate(cols) if '품목' in str(c))
+        qty_idx = next(i for i, c in enumerate(cols) if '수량' in str(c))
 
-        # ⭐ 핵심: 사용자에 따라 데이터 필터링
-        if role == "admin":
-            df = full_df # 관리자는 전체 데이터 확인
-            st.sidebar.warning("🛠️ 관리자 모드 (전체 조회)")
-        else:
-            df = full_df[full_df[owner_col] == user_id] # 일반 유저는 본인 이름 데이터만!
+        # 사용자별 필터링
+        df = full_df if role == "admin" else full_df[full_df[cols[owner_idx]] == user_id]
 
-        menu = st.sidebar.radio("메뉴", ["내 재고 현황", "입출고 관리", "신규 품목 등록"])
+        menu = st.sidebar.radio("메뉴", ["내 재고 현황", "입출고 및 이동", "신규 품목 등록"])
 
         if menu == "내 재고 현황":
-            st.subheader(f"📦 {user_id}님의 창고 리스트")
+            st.subheader(f"📊 {user_id}님의 재고 현황")
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-        elif menu == "입출고 관리":
-            st.subheader("📥 물품 입출고")
+        elif menu == "입출고 및 이동":
+            st.subheader("📥 물품 관리 및 유저 간 이동")
             if df.empty:
-                st.warning("등록된 물품이 없습니다. 먼저 신규 등록을 해주세요.")
+                st.warning("창고가 비어있습니다.")
             else:
                 for idx, row in df.iterrows():
-                    with st.expander(f"{row[name_col]} (현재: {row[qty_col]})"):
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            amt = st.number_input("수량", 1, 100, 1, key=f"n{idx}")
-                            if st.button("입고", key=f"in{idx}"):
-                                new_q = int(row[qty_col] + amt)
-                                main_sheet.update_cell(idx+2, list(full_df.columns).index(qty_col)+1, new_q)
-                                if log_sheet: log_sheet.append_row([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id, row[name_col], f"+{amt}", new_q])
+                    with st.expander(f"📦 {row[cols[name_idx]]} (현재 수량: {row[cols[qty_idx]]})"):
+                        t1, t2 = st.tabs(["일반 입출고", "🎁 타 유저에게 보내기"])
+                        
+                        # 일반 입출고 탭
+                        with t1:
+                            amt = st.number_input("수량 설정", 1, 1000, 1, key=f"amt{idx}")
+                            c1, c2 = st.columns(2)
+                            if c1.button("입고", key=f"in{idx}"):
+                                new_q = int(row[cols[qty_idx]] + amt)
+                                main_sheet.update_cell(idx+2, qty_idx+1, new_q)
+                                if log_sheet: log_sheet.append_row([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id, row[cols[name_idx]], f"+{amt} (입고)", new_q])
                                 st.rerun()
-                        with c2:
-                            if st.button("출고", key=f"out{idx}"):
-                                new_q = int(row[qty_col] - amt)
+                            if c2.button("출고", key=f"out{idx}"):
+                                new_q = int(row[cols[qty_idx]] - amt)
                                 if new_q < 0: st.error("재고 부족")
                                 else:
-                                    main_sheet.update_cell(idx+2, list(full_df.columns).index(qty_col)+1, new_q)
-                                    if log_sheet: log_sheet.append_row([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id, row[name_col], f"-{amt}", new_q])
+                                    main_sheet.update_cell(idx+2, qty_idx+1, new_q)
+                                    if log_sheet: log_sheet.append_row([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id, row[cols[name_idx]], f"-{amt} (출고)", new_q])
+                                    st.rerun()
+
+                        # 유저 간 이동 탭
+                        with t2:
+                            # 현재 시스템을 사용 중인 유저 목록 추출 (나 제외)
+                            all_users = sorted(list(set(full_df[cols[owner_idx]].unique())))
+                            if user_id in all_users: all_users.remove(user_id)
+                            
+                            target_user = st.selectbox("받는 사람 선택", all_users, key=f"target{idx}")
+                            move_amt = st.number_input("보낼 수량", 1, int(row[cols[qty_idx]]) if int(row[cols[qty_idx]]) > 0 else 1, key=f"m_amt{idx}")
+                            
+                            if st.button("보내기 실행", key=f"move{idx}"):
+                                if int(row[cols[qty_idx]]) < move_amt:
+                                    st.error("창고에 남은 수량이 부족합니다.")
+                                else:
+                                    # 1. 내 창고에서 차감
+                                    my_new_q = int(row[cols[qty_idx]] - move_amt)
+                                    main_sheet.update_cell(idx+2, qty_idx+1, my_new_q)
+                                    
+                                    # 2. 상대방 창고에 추가 (상대방의 해당 품목이 있는지 확인)
+                                    target_item_row = full_df[(full_df[cols[owner_idx]] == target_user) & (full_df[cols[name_idx]] == row[cols[name_idx]])]
+                                    
+                                    if not target_item_row.empty:
+                                        # 상대방에게 이미 해당 물건이 있으면 수량만 플러스
+                                        target_idx = target_item_row.index[0]
+                                        target_new_q = int(target_item_row.iloc[0][cols[qty_idx]] + move_amt)
+                                        main_sheet.update_cell(target_idx+2, qty_idx+1, target_new_q)
+                                    else:
+                                        # 상대방에게 물건이 없으면 새로 행 추가
+                                        new_row = [target_user, row[cols[name_idx]], row[cols[name_idx]-1 if name_idx>0 else 0], move_amt] # 소유자, 품목명, 규격, 수량 순
+                                        main_sheet.append_row(new_row)
+                                    
+                                    # 3. 로그 기록
+                                    if log_sheet:
+                                        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                        log_sheet.append_row([now, user_id, row[cols[name_idx]], f"보냄 -> {target_user}", my_new_q])
+                                        log_sheet.append_row([now, target_user, row[cols[name_idx]], f"받음 <- {user_id}", "확인필요"])
+                                    
+                                    st.success(f"{target_user}님에게 {move_amt}개를 보냈습니다!")
                                     st.rerun()
 
         elif menu == "신규 품목 등록":
-            st.subheader("🆕 내 창고에 물품 추가")
-            with st.form("add_form"):
-                new_n = st.text_input("품목명")
-                new_s = st.text_input("규격")
-                new_q = st.number_input("초기 수량", 0)
+            st.subheader("🆕 내 창고 신규 등록")
+            with st.form("add"):
+                n, s, q = st.text_input("품목명"), st.text_input("규격"), st.number_input("초기 수량", 0)
                 if st.form_submit_button("등록"):
-                    # ⭐ 저장할 때 현재 로그인한 user_id를 '소유자' 칸에 함께 저장!
-                    main_sheet.append_row([user_id, new_n, new_s, new_q])
-                    if log_sheet: log_sheet.append_row([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id, new_n, "신규등록", new_q])
-                    st.success("등록되었습니다!")
+                    main_sheet.append_row([user_id, n, s, q])
                     st.rerun()
 
     except Exception as e:
