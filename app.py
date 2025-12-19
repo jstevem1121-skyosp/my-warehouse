@@ -1,29 +1,36 @@
 import streamlit as st
 import pandas as pd
-from 정적_주소_연결_방식 import ... # 실제로는 아래 gspread 방식을 사용합니다.
-import gspread
+
+# 1. 구글 시트 주소 설정
+# 주소창의 주소를 복사해서 아래 따옴표 안에 넣으세요.
+# 주의: 주소 끝부분이 /edit#gid=0 형태여야 합니다.
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvXdBZjgmUUqptlbs74OgvE2upms/edit#gid=0"
+
+# 구글 시트를 Pandas가 읽을 수 있는 CSV 다운로드 주소로 변환하는 함수
+def get_csv_url(url):
+    return url.replace('/edit#gid=', '/export?format=csv&gid=')
 
 st.set_page_config(page_title="온라인 창고 관리", layout="wide")
-st.title("🌐 온라인 창고 관리 시스템")
-
-# 1. 시트의 URL 주소를 입력하세요 (브라우저 주소창에서 복사)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/여러분의_시트_고유_ID/edit"
+st.title("🌐 온라인 창고 관리 시스템 (간편 연결)")
 
 try:
-    # 이 방식은 가장 단순한 익명 접근 방식입니다.
-    # 만약 계속 에러가 난다면, gspread의 기본 인증 대신 아래의 간단한 라이브러리를 사용해봅니다.
-    from shillelagh.backends.apsw.db import connect
+    # 데이터 불러오기
+    csv_url = get_csv_url(SHEET_URL)
+    df = pd.read_csv(csv_url)
     
-    query = f'SELECT * FROM "{SHEET_URL}"'
-    conn = connect(":memory:")
-    cursor = conn.cursor()
-    cursor.execute(query)
-    rows = cursor.fetchall()
+    st.success("✅ 구글 시트 데이터를 성공적으로 가져왔습니다!")
     
-    df = pd.DataFrame(rows)
-    st.success("✅ 공개 링크를 통해 시트 연결에 성공했습니다!")
-    st.dataframe(df)
+    # 검색 기능
+    search = st.text_input("🔎 품목 검색")
+    if search:
+        display_df = df[df['품목'].str.contains(search, na=False)]
+    else:
+        display_df = df
+
+    # 재고 현황 출력
+    st.subheader("📊 실시간 재고 현황")
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"⚠️ 연결 실패: {e}")
-    st.info("이 방식마저 안 된다면 스트림릿 서버의 네트워크 문제입니다.")
+    st.error(f"⚠️ 에러 발생: {e}")
+    st.info("구글 시트의 공유 설정이 '링크가 있는 모든 사용자'로 되어 있는지 확인해주세요.")
