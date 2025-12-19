@@ -11,14 +11,14 @@ st.set_page_config(page_title="온라인 창고 관리", layout="wide")
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # 1. 먼저 Secrets 설정을 확인
-    if "gcp_service_account" in st.secrets:
-        creds_info = st.secrets["gcp_service_account"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-    # 2. Secrets가 없으면 key.json 파일 확인
-    else:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
-        
+    # Secrets 정보를 딕셔너리로 가져오기
+    # 스트림릿 Secrets는 TOML 형식이므로 딕셔너리로 바로 변환됩니다.
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    
+    # 만약 private_key 안의 \n이 제대로 인식 안 되는 경우를 대비한 보정
+    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     return gspread.authorize(creds)
 
 # 데이터 불러오기
