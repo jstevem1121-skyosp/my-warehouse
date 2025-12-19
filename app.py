@@ -3,14 +3,14 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# 1. 시트 설정 (사용자님의 시트 주소 전체를 넣으세요)
+# 1. 시트 설정
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY/edit#gid=0"
 
 # 2. 구글 인증 함수
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # 키 문자열을 딕셔너리 밖에서 먼저 정의합니다.
+    # 키 문자열 정의
     private_key = """-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDUvA+YkMcxC/jY
 cECdEzt3HZf5Jid+y8j+7I+B8yl8hUiB4Sqma55v+0QxkcY1RM/7ar/4GIdKpU72
@@ -40,17 +40,17 @@ h1ftW3WYY13niLPZWXCDMy3LX9UY8xXoUqnbWd7I3psvo31m2zg16lvxtwJyFqIp
 kdT58GTxF1Lc/l8JaYKfRs8=
 -----END PRIVATE KEY-----"""
 
- creds_dict = {
-      "type": "service_account",
-      "project_id": "vernal-design-481723-j0",
-      "private_key_id": "995db9a26656c83e05d67c754d8b7df8fb6740e7",
-      "private_key": formatted_key,
-      "client_email": "skyosp@vernal-design-481723-j0.iam.gserviceaccount.com",
-      "client_id": "112636889347820130865",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/skyosp%40vernal-design-481723-j0.iam.gserviceaccount.com"
+    creds_dict = {
+        "type": "service_account",
+        "project_id": "vernal-design-481723-j0",
+        "private_key_id": "995db9a26656c83e05d67c754d8b7df8fb6740e7",
+        "private_key": private_key.strip().replace("\\n", "\n"),
+        "client_email": "skyosp@vernal-design-481723-j0.iam.gserviceaccount.com",
+        "client_id": "112636889347820130865",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/skyosp%40vernal-design-481723-j0.iam.gserviceaccount.com"
     }
     return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope))
 
@@ -60,10 +60,9 @@ st.title("🌐 온라인 창고 관리 시스템")
 
 try:
     client = get_gspread_client()
-    # SHEET_URL을 이용해 시트 열기
     sheet = client.open_by_url(SHEET_URL).sheet1
     
-    # 데이터 입력 부분
+    # 데이터 입력
     with st.expander("➕ 새 물품 등록"):
         with st.form("add_form"):
             col1, col2, col3 = st.columns(3)
@@ -71,16 +70,21 @@ try:
             item = col2.text_input("품목명")
             qty = col3.number_input("수량", min_value=0, step=1)
             if st.form_submit_button("저장하기"):
-                sheet.append_row([wh, item, qty])
-                st.success("저장되었습니다!")
-                st.rerun()
+                if wh and item:
+                    sheet.append_row([wh, item, qty])
+                    st.success("저장되었습니다!")
+                    st.rerun()
+                else:
+                    st.warning("창고 위치와 품목명을 입력해주세요.")
 
-    # 데이터 출력 부분
+    # 데이터 출력
     data = sheet.get_all_records()
     if data:
         df = pd.DataFrame(data)
         st.subheader("📊 실시간 재고 현황")
         st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("시트에 데이터가 없습니다. 물품을 등록해보세요!")
 
 except Exception as e:
     st.error(f"연결 에러: {e}")
