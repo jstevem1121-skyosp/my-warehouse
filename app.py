@@ -7,14 +7,19 @@ from oauth2client.service_account import ServiceAccountCredentials
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY/edit#gid=0"
 
 def get_gspread_client():
-    # 권한 범위 설정
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Streamlit Secrets에서 설정 정보를 딕셔너리로 가져옴
-    creds_dict = dict(st.secrets["gcp_service_account"])
+    # 1. Secrets에서 정보를 가져온 후 명시적으로 딕셔너리로 변환합니다.
+    # st.secrets["gcp_service_account"] 자체가 딕셔너리처럼 작동하지만, 
+    # 일부 환경에서는 dict()로 한 번 더 감싸주는 것이 안전합니다.
+    creds_info = dict(st.secrets["gcp_service_account"])
     
-    # 인증 수행
-    return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope))
+    # 2. private_key 내부에 실제 줄바꿈이 필요한 경우를 대비해 처리 (선택 사항)
+    if "\\n" in creds_info["private_key"]:
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        
+    # 3. dict 데이터를 사용하여 인증을 수행합니다.
+    return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope))
 
 # UI 설정
 st.set_page_config(page_title="온라인 창고 관리", layout="wide")
