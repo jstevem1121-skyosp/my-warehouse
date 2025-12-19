@@ -32,38 +32,60 @@ try:
     data = sheet.get_all_records()
     
     if data:
-        # 데이터프레임 변환
         df = pd.DataFrame(data)
         
-        # --- 1단계: 상단 대시보드 요약 (간단하게) ---
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("총 품목 수", f"{len(df)}개")
-        with col2:
-            # '재고량' 혹은 '수량' 컬럼이 있다면 합계 표시 가능
+        # --- [추가] 사이드바 메뉴 구성 ---
+        st.sidebar.title("📦 창고 관리 메뉴")
+        menu = st.sidebar.radio("이동할 메뉴", ["재고 현황", "입출고 기록(준비중)", "설정"])
+
+        if menu == "재고 현황":
+            # --- 1. 요약 메트릭 ---
+            col1, col2, col3 = st.columns(3)
+            
+            # 수량 데이터가 숫자가 아닐 경우를 대비해 변환
             if '수량' in df.columns:
-                st.metric("총 재고량", f"{df['수량'].sum()}개")
+                df['수량'] = pd.to_numeric(df['수량'], errors='coerce').fillna(0)
 
-        st.divider() # 구분선
+            with col1:
+                st.metric("전체 품목", f"{len(df)}종")
+            with col2:
+                low_stock = len(df[(df['수량'] <= 5) & (df['수량'] > 0)]) if '수량' in df.columns else 0
+                st.metric("품절 임박", f"{low_stock}종", delta="-발주필요", delta_color="inverse")
+            with col3:
+                out_of_stock = len(df[df['수량'] <= 0]) if '수량' in df.columns else 0
+                st.metric("품절(위험)", f"{out_of_stock}종", delta="재고없음", delta_color="normal")
 
-        # --- 2단계: 검색 기능 ---
-        st.subheader("🔍 재고 검색")
-        search_term = st.text_input("검색어를 입력하세요 (품목명, 규격, 위치 등)", "")
+            st.divider()
+
+            # --- 2. 검색창 ---
+            search_term = st.text_input("🔍 검색어 입력 (품목, 규격 등)", placeholder="찾으시는 물건을 입력하세요...")
+            
+            if search_term:
+                filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
+            else:
+                filtered_df = df
+
+            # --- 3. 조건부 색상 스타일링 함수 ---
+            def highlight_stock(s):
+                if '수량' in s.index:
+                    if s['수량'] <= 0:
+                        return ['background-color: #ffcccc'] * len(s) # 품절: 연빨강
+                    elif s['수량'] <= 5:
+                        return ['background-color: #fff4cc'] * len(s) # 부족: 연주황
+                return [''] * len(s)
+
+            st.success(f"✅ 현재 재고 현황 (결과: {len(filtered_df)}건)")
+            
+            # 스타일 적용하여 출력
+            if not filtered_df.empty:
+                styled_df = filtered_df.style.apply(highlight_stock, axis=1)
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            else:
+                st.warning("검색 결과가 없습니다.")
         
-        # 전체 열에서 검색어가 포함된 행 필터링
-        if search_term:
-            filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
         else:
-            filtered_df = df
-
-        # --- 3단계: 테이블 출력 ---
-        st.success(f"✅ 현재 재고 현황 (결과: {len(filtered_df)}건)")
-        st.dataframe(
-            filtered_df, 
-            use_container_width=True, 
-            hide_index=True
-        )
-        
+            st.info(f"'{menu}' 메뉴는 현재 준비 중입니다.")
+            
     else:
         st.info("연결 성공! 현재 시트에 데이터가 없습니다.")
 
