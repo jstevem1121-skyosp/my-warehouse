@@ -7,7 +7,9 @@ import pandas as pd
 def get_gspread_client():
     # 'key.json' 파일로 인증 진행
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("key.json", scope)
+    import json
+creds_info = st.secrets["gcp_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
     return gspread.authorize(creds)
 
 try:
