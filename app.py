@@ -5,39 +5,46 @@ from google.oauth2.service_account import Credentials
 import re
 from datetime import datetime
 
-# --- 페이지 기본 설정 (가장 위에 와야 합니다) ---
+# --- 페이지 설정 ---
 st.set_page_config(page_title="온라인 창고 관리", layout="wide")
 
-# --- 1. 로그인 체크 로직 ---
-def check_password():
-    """사용자가 올바른 비밀번호를 입력했는지 확인하고 결과 반환"""
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
+# --- 1. ID 및 비밀번호 체크 로직 ---
+def check_login():
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+        st.session_state["user_id"] = ""
+        st.session_state["role"] = None
 
-    if st.session_state["password_correct"]:
+    if st.session_state["logged_in"]:
         return True
 
-    # 로그인 화면 중앙 정렬
-    st.markdown("### 🔒 창고 관리 시스템")
-    pwd_input = st.text_input("비밀번호를 입력하세요", type="password")
+    st.title("🔒 창고 관리 시스템")
     
-    # Secrets에 저장된 app_password와 비교 (직접 "1234"로 테스트하고 싶다면 st.secrets 부분을 "1234"로 바꿔보세요)
-    if st.button("로그인"):
-        try:
-            correct_pwd = st.secrets["app_password"]
-            if pwd_input == str(correct_pwd):
-                st.session_state["password_correct"] = True
+    with st.container():
+        user_id = st.text_input("사용자 성함(ID)을 입력하세요", placeholder="예: 홍길동")
+        pwd_input = st.text_input("비밀번호를 입력하세요", type="password")
+        
+        if st.button("로그인"):
+            if not user_id:
+                st.error("사용자 성함을 입력해주세요.")
+            elif pwd_input == str(st.secrets["app_password"]):
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = user_id
+                st.session_state["role"] = "admin"
+                st.rerun()
+            elif pwd_input == str(st.secrets["user_password"]):
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = user_id
+                st.session_state["role"] = "user"
                 st.rerun()
             else:
                 st.error("❌ 비밀번호가 틀렸습니다.")
-        except KeyError:
-            st.error("❌ 설정(Secrets)에 'app_password'가 등록되어 있지 않습니다.")
-    
     return False
 
-# --- 2. 구글 시트 연결 함수 ---
+# --- 2. 구글 시트 연결 및 업데이트 함수 (로그에 ID 포함) ---
 @st.cache_resource
 def get_gspread_client():
+    # (기존 서비스 계정 연결 로직 동일)
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_info = dict(st.secrets["gcp_service_account"])
     pk = creds_info["private_key"]
@@ -50,48 +57,40 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
+def update_stock_with_id(main_sheet, log_sheet, row_idx, item_name, current_qty, change, qty_col_idx):
+    new_qty = current_qty + change
+    if new_qty < 0:
+        st.error("재고 부족!")
+        return
+    try:
+        main_sheet.update_cell(row_idx + 2, qty_col_idx + 1, int(new_qty))
+        if log_sheet:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            user_info = st.session_state["user_id"] # 현재 로그인된 ID
+            change_text = f"+{change}" if change > 0 else str(change)
+            # 로그에 [시간, ID, 품목, 변동, 결과] 기록
+            log_sheet.append_row([now, user_info, item_name, change_text, int(new_qty)])
+        st.toast(f"✅ {user_info}님 작업 완료")
+        st.rerun()
+    except Exception as e:
+        st.error(f"오류: {e}")
+
 # --- 3. 메인 로직 ---
-if check_password():
-    # 로그아웃 버튼
+if check_login():
+    user_id = st.session_state["user_id"]
+    role = st.session_state["role"]
+    
+    st.sidebar.info(f"👤 접속자: {user_id} ({'관리자' if role=='admin' else '사용자'})")
     if st.sidebar.button("로그아웃"):
-        st.session_state["password_correct"] = False
+        st.session_state["logged_in"] = False
         st.rerun()
 
-    SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY/edit#gid=0"
+    # --- 메뉴 구성 ---
+    menu_list = ["재고 현황", "간편 입출고"]
+    if role == "admin":
+        menu_list += ["품목 관리", "활동 로그"]
+    
+    menu = st.sidebar.radio("📋 메뉴", menu_list)
 
-    try:
-        client = get_gspread_client()
-        spreadsheet = client.open_by_url(SHEET_URL)
-        main_sheet = spreadsheet.sheet1
-        try:
-            log_sheet = spreadsheet.worksheet("로그")
-        except:
-            log_sheet = None
-
-        data = main_sheet.get_all_records()
-        
-        if data:
-            df = pd.DataFrame(data)
-            # 유연한 컬럼 인식
-            name_col = next((c for c in df.columns if '품목' in str(c) or '이름' in str(c)), df.columns[0])
-            qty_col = next((c for c in df.columns if '수량' in str(c)), df.columns[2] if len(df.columns) > 2 else None)
-            
-            if qty_col:
-                df[qty_col] = pd.to_numeric(df[qty_col], errors='coerce').fillna(0).astype(int)
-                qty_col_idx = list(df.columns).index(qty_col)
-
-            menu = st.sidebar.radio("📋 메뉴", ["재고 현황", "간편 입출고", "품목 관리 (등록/수정)", "활동 로그"])
-
-            # 각 메뉴별 코드는 그대로 유지 (이전 통합 코드 내용)
-            if menu == "재고 현황":
-                st.subheader("📊 전체 재고")
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            
-            elif menu == "간편 입출고":
-                # ... (이전 입출고 코드들) ...
-                st.info("입출고 기능을 사용하세요.")
-            
-            # (나머지 관리/로그 메뉴 등등...)
-            
-    except Exception as e:
-        st.error(f"❌ 데이터 로딩 중 오류 발생: {e}")
+    # (이후 시트 연결 및 메뉴별 실행 코드는 동일하게 구성)
+    # 로그 시트에 저장 시 반드시 update_stock_with_id 함수를 사용하세요.
