@@ -22,29 +22,24 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
-def update_stock(main_sheet, log_sheet, row_idx, item_name, current_qty, change, qty_col_idx, is_direct=False):
-    if is_direct:
-        new_qty = change
-        diff = new_qty - current_qty
-    else:
-        new_qty = current_qty + change
-        diff = change
-
+# 수량 변경 함수
+def update_stock(main_sheet, log_sheet, row_idx, item_name, current_qty, change, qty_col_idx):
+    new_qty = current_qty + change
     if new_qty < 0:
-        st.error("재고는 0보다 작을 수 없습니다!")
+        st.error(f"❌ {item_name}: 재고가 부족합니다! (현재: {current_qty})")
         return
     
     try:
-        # 순서 기반으로 업데이트 (qty_col_idx 사용)
         main_sheet.update_cell(row_idx + 2, qty_col_idx + 1, int(new_qty))
         
-        if diff != 0:
+        # 로그 기록
+        if change != 0:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            change_text = f"+{diff}" if diff > 0 else str(diff)
+            change_text = f"+{change}" if change > 0 else str(change)
             if log_sheet:
                 log_sheet.append_row([now, item_name, change_text, int(new_qty)])
         
-        st.toast(f"✅ 업데이트 완료!")
+        st.toast(f"✅ {item_name} {change}개 처리 완료! (현재: {new_qty})")
         st.rerun()
     except Exception as e:
         st.error(f"업데이트 중 오류 발생: {e}")
@@ -65,9 +60,9 @@ try:
     
     if data:
         df = pd.DataFrame(data)
-        # '수량'이라는 단어가 포함된 컬럼 찾기 (유연한 검색)
-        qty_col = next((c for c in df.columns if '수량' in c), df.columns[2] if len(df.columns) > 2 else None)
-        name_col = next((c for c in df.columns if '품목' in c or '이름' in c), df.columns[0])
+        # 컬럼 유연하게 찾기
+        qty_col = next((c for c in df.columns if '수량' in str(c)), df.columns[2] if len(df.columns) > 2 else None)
+        name_col = next((c for c in df.columns if '품목' in str(c) or '이름' in str(c)), df.columns[0])
         
         if qty_col:
             df[qty_col] = pd.to_numeric(df[qty_col], errors='coerce').fillna(0).astype(int)
@@ -77,25 +72,47 @@ try:
         menu = st.sidebar.radio("이동", ["재고 현황", "간편 입출고", "활동 로그"])
 
         if menu == "재고 현황":
+            st.success("전체 재고 리스트")
             st.dataframe(df, use_container_width=True, hide_index=True)
 
         elif menu == "간편 입출고":
-            edit_search = st.text_input("품목 검색")
+            st.subheader("🛠️ 수량 증감 조정")
+            edit_search = st.text_input("품목 검색", placeholder="이름을 입력하세요")
             display_df = df[df.astype(str).apply(lambda x: x.str.contains(edit_search, case=False)).any(axis=1)] if edit_search else df
 
             for idx, row in display_df.iterrows():
                 item_name = row[name_col]
                 curr_qty = row[qty_col]
+                
                 with st.expander(f"📦 {item_name} (현재: {curr_qty}개)", expanded=True):
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns([1, 2, 2])
+                    
                     with c1:
-                        if st.button(f"➕ 입고", key=f"in_{idx}"):
+                        st.write("**기본 조정**")
+                        if st.button(f"➕ 1개", key=f"p1_{idx}"):
                             update_stock(main_sheet, log_sheet, idx, item_name, curr_qty, 1, qty_col_idx)
-                        if st.button(f"➖ 출고", key=f"out_{idx}"):
+                        if st.button(f"➖ 1개", key=f"m1_{idx}"):
                             update_stock(main_sheet, log_sheet, idx, item_name, curr_qty, -1, qty_col_idx)
+
                     with c2:
-                        new_input = st.number_input("수량 설정", value=int(curr_qty), key=f"num_{idx}")
-                        if st.button("확정", key=f"set_{idx}"):
-                            update_stock(main_sheet, log_sheet, idx, item_name, curr_qty, new_input, qty_col_idx, is_direct=True)
+                        st.write("**직접 더하기**")
+                        plus_val = st.number_input("입고 수량", min_value=1, value=10, key=f"plus_{idx}", step=1)
+                        if st.button(f"확인: +{plus_val}개", key=f"btn_p_{idx}"):
+                            update_stock(main_sheet, log_sheet, idx, item_name, curr_qty, plus_val, qty_col_idx)
+
+                    with c3:
+                        st.write("**직접 빼기**")
+                        minus_val = st.number_input("출고 수량", min_value=1, value=10, key=f"minus_{idx}", step=1)
+                        if st.button(f"확인: -{minus_val}개", key=f"btn_m_{idx}"):
+                            update_stock(main_sheet, log_sheet, idx, item_name, curr_qty, -minus_val, qty_col_idx)
+
+        elif menu == "활동 로그":
+            st.subheader("📜 최근 활동 내역")
+            if log_sheet:
+                log_data = log_sheet.get_all_values()
+                if len(log_data) > 1:
+                    log_df = pd.DataFrame(log_data[1:], columns=log_data[0])
+                    st.dataframe(log_df.iloc[::-1].head(30), use_container_width=True)
+                else: st.info("기록이 없습니다.")
 except Exception as e:
     st.error(f"❌ 오류 발생: {e}")
