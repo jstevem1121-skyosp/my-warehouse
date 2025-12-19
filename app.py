@@ -10,8 +10,9 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_j
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # 키 문자열 정의 (줄바꿈 및 공백 제거)
-    key_body = (
+    # [주의] 아래 private_key는 사용자님의 키 원본을 한 줄로 정밀하게 재구성한 것입니다.
+    # 중간에 공백이나 줄바꿈이 끼어들지 않도록 주의하세요.
+    p_key = (
         "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDUvA+YkMcxC/jY"
         "cECdEzt3HZf5Jid+y8j+7I+B8yl8hUiB4Sqma55v+0QxkcY1RM/7ar/4GIdKpU72"
         "X9Ehtp/GyPRmi0JgUEYVZeU1l/Dv3rbZvWELCNeASHzP/p7hmlTxrj6a2BtkJ9fC"
@@ -40,18 +41,14 @@ def get_gspread_client():
         "kdT58GTxF1Lc/l8JaYKfRs8="
     )
     
-    # Incorrect padding 방지: 문자열 길이를 4의 배수로 맞춤
-    missing_padding = len(key_body) % 4
-    if missing_padding:
-        key_body += "=" * (4 - missing_padding)
-        
-    private_key = f"-----BEGIN PRIVATE KEY-----\n{key_body}\n-----END PRIVATE KEY-----\n"
+    # 서명 형식을 맞추기 위해 줄바꿈 보정
+    full_key = f"-----BEGIN PRIVATE KEY-----\n{p_key}\n-----END PRIVATE KEY-----\n"
 
     creds_dict = {
         "type": "service_account",
         "project_id": "vernal-design-481723-j0",
         "private_key_id": "995db9a26656c83e05d67c754d8b7df8fb6740e7",
-        "private_key": private_key,
+        "private_key": full_key,
         "client_email": "skyosp@vernal-design-481723-j0.iam.gserviceaccount.com",
         "client_id": "112636889347820130865",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -69,7 +66,6 @@ try:
     client = get_gspread_client()
     sheet = client.open_by_url(SHEET_URL).sheet1
     
-    # 데이터 입력
     with st.expander("➕ 새 물품 등록"):
         with st.form("add_form"):
             col1, col2, col3 = st.columns(3)
@@ -84,12 +80,10 @@ try:
                 else:
                     st.warning("창고 위치와 품목명을 입력해주세요.")
 
-    # 데이터 출력
     data = sheet.get_all_records()
     if data:
-        df = pd.DataFrame(data)
         st.subheader("📊 실시간 재고 현황")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
     else:
         st.info("시트에 데이터가 없습니다. 물품을 등록해보세요!")
 
