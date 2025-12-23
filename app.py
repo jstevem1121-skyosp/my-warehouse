@@ -6,18 +6,15 @@ import requests
 from datetime import datetime
 import streamlit.components.v1 as components
 
-# --- 1. 페이지 설정 및 전문 디자인 ---
-st.set_page_config(page_title="통합 창고 관리 시스템", layout="wide")
+# --- 1. 페이지 및 디자인 설정 ---
+st.set_page_config(page_title="통합 관리 시스템 v7.0", layout="wide")
 
 st.markdown("""
     <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { 
-        height: 50px; background-color: #f0f2f6; border-radius: 5px 5px 0 0; padding: 10px;
-    }
-    .stTabs [aria-selected="true"] { background-color: #5d6d7e !important; color: white !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { height: 45px; white-space: pre-wrap; font-size: 14px; }
     thead tr th { background-color: #5d6d7e !important; color: white !important; }
-    .main { background-color: #ffffff; }
+    .as-form-box { border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f9f9f9; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,9 +38,6 @@ def google_api_request(method, range_name, values=None):
         if method == "GET":
             resp = requests.get(url, headers=headers)
             return resp.json().get('values', [])
-        elif method == "UPDATE":
-            body = {"values": values}
-            requests.put(url, headers=headers, params=params, json=body)
         elif method == "APPEND":
             body = {"values": values}
             requests.post(f"{url}:append", headers=headers, params=params, json=body)
@@ -51,110 +45,99 @@ def google_api_request(method, range_name, values=None):
     except: return None
 
 @st.cache_data(ttl=2)
-def load_data():
-    main_rows = google_api_request("GET", "inventory_data!A:E")
+def load_all_data():
+    inv_rows = google_api_request("GET", "inventory_data!A:E")
     user_rows = google_api_request("GET", "사용자!A:C")
-    df = pd.DataFrame(main_rows[1:], columns=main_rows[0]) if main_rows else pd.DataFrame()
-    if not df.empty:
-        df = df[df.iloc[:, 1] != "신규 창고 개설"] #
-        df.iloc[:, 3] = pd.to_numeric(df.iloc[:, 3], errors='coerce').fillna(0).astype(int)
+    as_rows = google_api_request("GET", "as_data!A:J") # AS 데이터 추가
+    
+    inv_df = pd.DataFrame(inv_rows[1:], columns=inv_rows[0]) if inv_rows else pd.DataFrame()
     u_df = pd.DataFrame(user_rows[1:], columns=user_rows[0]) if user_rows else pd.DataFrame()
-    return df, u_df
+    as_df = pd.DataFrame(as_rows[1:], columns=as_rows[0]) if as_rows else pd.DataFrame()
+    
+    return inv_df, u_df, as_df
 
-# --- 3. 메인 로직 ---
-df, user_df = load_data()
+# --- 3. 메인 기능 구성 ---
+inv_df, user_df, as_df = load_all_data()
 
 if "logged_in" not in st.session_state:
     st.session_state.update({"logged_in": False, "user_id": "", "role": ""})
 
 if not st.session_state["logged_in"]:
-    st.title("🔐 시스템 로그인")
+    st.title("🔐 통합 시스템 로그인")
     with st.form("login"):
-        id_i = st.text_input("아이디")
-        pw_i = st.text_input("비밀번호", type="password")
-        if st.form_submit_button("접속"):
+        id_i, pw_i = st.text_input("ID"), st.text_input("PW", type="password")
+        if st.form_submit_button("로그인"):
             if not user_df.empty:
-                u_row = user_df[(user_df.iloc[:, 0] == id_i) & (user_df.iloc[:, 1] == pw_i)]
+                u_row = user_df[(user_df.iloc[:,0] == id_i) & (user_df.iloc[:,1] == pw_i)]
                 if not u_row.empty:
                     st.session_state.update({"logged_in": True, "user_id": id_i, "role": u_row.iloc[0, 2]})
                     st.rerun()
-            st.error("로그인 실패")
 else:
-    # 상단 헤더
-    h1, h2 = st.columns([8, 2])
-    h1.title("🏢 창고 통합 관리 대시보드")
-    if h2.button("로그아웃"):
-        st.session_state["logged_in"] = False
-        st.rerun()
+    st.sidebar.title(f"👤 {st.session_state['user_id']}님")
+    menu = st.sidebar.radio("대메뉴", ["🛠️ AS 관리", "📦 창고/재고 관리", "📅 일정/이력"])
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🏛️ 창고별 재고현황", "📅 일정 달력", "📜 작업 이력", "⚙️ 시스템 설정"])
-
-    # --- 탭 1: 2분할 창고 현황 (이미지 ac142b 스타일) ---
-    with tab1:
-        col_list, col_detail = st.columns([1, 1.8])
+    # --- [A] AS 관리 모듈 (이미지 ac1beb, a21b46 스타일) ---
+    if menu == "🛠️ AS 관리":
+        tab_as1, tab_as2 = st.tabs(["📝 AS 접수 글쓰기", "📋 AS 접수 현황"])
         
-        with col_list:
-            st.subheader("👥 창고 목록")
-            # 왼쪽 테이블: 사용자 리스트 (이미지 ac13b3 재현)
-            st.dataframe(user_df[[user_df.columns[0], user_df.columns[2]]], use_container_width=True, hide_index=True)
-            selected_user = st.selectbox("상세 조회할 창고 선택", user_df.iloc[:, 0].unique())
-
-        with col_detail:
-            st.subheader(f"📦 {selected_user} 창고 상세")
-            # 선택된 창고의 물품 합산 표시
-            u_df_filtered = df[df.iloc[:, 0] == selected_user]
-            if not u_df_filtered.empty:
-                # 합산된 데이터프레임 생성
-                summary = u_df_filtered.groupby([df.columns[1], df.columns[2]])[df.columns[3]].sum().reset_index()
-                st.dataframe(summary, use_container_width=True, hide_index=True)
+        with tab_as1:
+            st.subheader("📝 AS 접수 신청")
+            with st.container(border=True):
+                c1, c2 = st.columns(2)
+                ano = datetime.now().strftime("%y%m%d%H%M%S")
+                adate = datetime.now().strftime("%Y-%m-%d")
                 
-                # 본인 창고일 경우 관리 기능 활성화
-                if selected_user == st.session_state["user_id"]:
-                    with st.expander("🛠️ 내 재고 입고/전송 관리"):
-                        for idx, row in u_df_filtered.iterrows():
-                            c1, c2, c3 = st.columns([2, 2, 3])
-                            c1.write(f"**{row.iloc[1]}**")
-                            with c2:
-                                amt = st.number_input("수량", 1, 500, 1, key=f"amt_{idx}")
-                                if st.button("➕ 입고", key=f"in_{idx}"):
-                                    google_api_request("UPDATE", f"inventory_data!D{idx+2}", [[int(row.iloc[3]) + amt]])
-                                    google_api_request("APPEND", "이력!A:F", [[datetime.now().strftime("%Y-%m-%d %H:%M"), st.session_state['user_id'], "입고", row.iloc[1], amt, "-"]])
-                                    st.cache_data.clear(); st.rerun()
-                            with c3:
-                                target = st.selectbox("전송지", [u for u in user_df.iloc[:, 0] if u != selected_user], key=f"t_{idx}")
-                                if st.button("🚀 전송", key=f"s_{idx}"):
-                                    google_api_request("UPDATE", f"inventory_data!D{idx+2}", [[int(row.iloc[3]) - amt]])
-                                    google_api_request("APPEND", "inventory_data!A:D", [[target, row.iloc[1], row.iloc[2], amt]])
-                                    st.cache_data.clear(); st.rerun()
+                with c1:
+                    st.text_input("접수번호", ano, disabled=True)
+                    apt = st.selectbox("아파트명", ["아파트 선택", "고덕래미안힐스테이트", "공덕자이", "자양동스타시티"])
+                    dong = st.text_input("동")
+                with c2:
+                    st.text_input("접수일자", adate, disabled=True)
+                    user_nm = st.text_input("신청자명")
+                    ho = st.text_input("호")
+                
+                phone = st.text_input("연락처 (예: 010-0000-0000)")
+                
+                st.write("**📍 고장위치 (중복 체크)**")
+                loc_cols = st.columns(3)
+                loc1 = loc_cols[0].checkbox("공용욕실")
+                loc2 = loc_cols[1].checkbox("부부욕실")
+                loc3 = loc_cols[2].checkbox("환기시스템")
+                
+                loc_text = f"{'공용 ' if loc1 else ''}{'부부 ' if loc2 else ''}{'환기' if loc3 else ''}"
+                desc = st.text_area("상세 AS 내용", placeholder="고장 증상을 자세히 적어주세요.")
+                
+                if st.button("🚀 AS 접수하기", use_container_width=True):
+                    new_as = [[ano, adate, apt, dong, ho, user_nm, phone, loc_text, desc, "신청"]]
+                    google_api_request("APPEND", "as_data!A:J", new_as)
+                    st.success("AS 접수가 완료되었습니다!"); st.cache_data.clear(); st.rerun()
+
+        with tab_as2:
+            st.subheader("📋 전체 AS 접수 현황")
+            if not as_df.empty:
+                st.dataframe(as_df.iloc[::-1], use_container_width=True, hide_index=True)
             else:
-                st.info("재고가 없습니다.")
+                st.info("접수된 내역이 없습니다.")
 
-    # --- 탭 2: 일정 달력 ---
-    with tab2:
-        components.iframe("https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com&ctz=Asia%2FSeoul", height=650)
+    # --- [B] 창고/재고 관리 모듈 (v6.4 2분할 구조 유지) ---
+    elif menu == "📦 창고/재고 관리":
+        col_l, col_r = st.columns([1, 1.8])
+        with col_l:
+            st.subheader("🏛️ 창고 목록")
+            st.dataframe(user_df[[user_df.columns[0], user_df.columns[2]]], use_container_width=True, hide_index=True)
+            target_u = st.selectbox("상세 조회", user_df.iloc[:, 0].unique())
+        with col_r:
+            st.subheader(f"📦 {target_u} 창고 상세")
+            u_inv = inv_df[inv_df.iloc[:, 0] == target_u]
+            if not u_inv.empty:
+                summary = u_inv.groupby([inv_df.columns[1], inv_df.columns[2]])[inv_df.columns[3]].sum().reset_index()
+                st.dataframe(summary, use_container_width=True, hide_index=True)
 
-    # --- 탭 3: 작업 이력 ---
-    with tab3:
-        st.subheader("📜 최근 시스템 로그")
-        log_data = google_api_request("GET", "이력!A:F")
-        if log_data:
-            st.dataframe(pd.DataFrame(log_data[1:], columns=log_data[0]).iloc[::-1], use_container_width=True, hide_index=True)
-
-    # --- 탭 4: 시스템 설정 ---
-    with tab4:
-        c_reg, c_user = st.columns(2)
-        with c_reg:
-            st.subheader("🆕 신규 품목 등록")
-            with st.form("new_i"):
-                n, s, q = st.text_input("품목명"), st.text_input("규격"), st.number_input("수량", 0)
-                if st.form_submit_button("등록"):
-                    google_api_request("APPEND", "inventory_data!A:D", [[st.session_state['user_id'], n, s, q]])
-                    st.cache_data.clear(); st.rerun()
-        with c_user:
-            if st.session_state["role"] == "admin":
-                st.subheader("👥 신규 계정 생성")
-                with st.form("new_u"):
-                    u, p = st.text_input("ID"), st.text_input("PW")
-                    if st.form_submit_button("생성"):
-                        google_api_request("APPEND", "사용자!A:C", [[u, p, "user"]])
-                        st.success("완료"); st.rerun()
+    # --- [C] 일정 및 이력 ---
+    elif menu == "📅 일정/이력":
+        tab_c1, tab_c2 = st.tabs(["📅 일정 달력", "📜 작업 이력"])
+        with tab_c1:
+            components.iframe("https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com&ctz=Asia%2FSeoul", height=600)
+        with tab_c2:
+            logs = google_api_request("GET", "이력!A:F")
+            if logs: st.dataframe(pd.DataFrame(logs[1:], columns=logs[0]).iloc[::-1], use_container_width=True)
