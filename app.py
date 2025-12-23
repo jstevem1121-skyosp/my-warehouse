@@ -3,41 +3,40 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import google.auth.transport.requests
-from google.auth.transport.requests import AuthorizedSession
+import requests
 from datetime import datetime
 import streamlit.components.v1 as components
 
 # --- 1. 페이지 설정 ---
-st.set_page_config(page_title="고속 창고 관리 시스템 v3.9", layout="wide")
+st.set_page_config(page_title="재고 관리 시스템 v4.0", layout="wide")
 
-# --- 2. [에러 강제 해결] 수동 세션 주입 로직 ---
-def get_stable_client():
+# --- 2. [완전 우회] 원시 토큰 인증 방식 ---
+def get_final_stable_client():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds_info = dict(st.secrets["gcp_service_account"])
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         
-        # 1. Credentials 생성
+        # Credentials 생성
         creds = Credentials.from_service_account_info(creds_info, scopes=scope)
         
-        # 2. [핵심] 에러가 발생하는 _auth_request를 수동으로 생성하여 주입
+        # 토큰 강제 리프레시 (AuthorizedSession을 거치지 않음)
         auth_request = google.auth.transport.requests.Request()
+        creds.refresh(auth_request)
         
-        # 3. AuthorizedSession을 직접 생성 (이게 빠지면 에러가 남)
-        # gspread 내부에서 자동으로 하게 두지 않고 우리가 직접 만들어서 넘깁니다.
-        session = AuthorizedSession(creds)
-        session._auth_request = auth_request # 에러가 발생하는 바로 그 속성을 강제 주입
+        # gspread 클라이언트를 가장 낮은 수준에서 생성
+        # 에러가 발생하는 AuthorizedSession 대신 직접 인증 정보를 주입
+        client = gspread.Client(auth=creds)
+        client.session.headers.update({'Authorization': f'Bearer {creds.token}'})
         
-        # 4. gspread 클라이언트를 수동 빌드
-        client = gspread.Client(auth=creds, session=session)
         return client
     except Exception as e:
         st.error(f"🔑 인증 엔진 치명적 오류: {e}")
         return None
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def fetch_all_data(sheet_url):
-    client = get_stable_client()
+    client = get_final_stable_client()
     if not client: return None, None, None
     try:
         spreadsheet = client.open_by_url(sheet_url)
@@ -45,15 +44,23 @@ def fetch_all_data(sheet_url):
         user_sheet = spreadsheet.worksheet("사용자")
         return main_sheet.get_all_records(), user_sheet.get_all_records(), spreadsheet
     except Exception as e:
-        st.error(f"📊 로드 실패: {e}")
+        st.error(f"📊 데이터 로드 실패: {e}")
         return None, None, None
 
-# --- 3. 데이터 업데이트 함수 (복구) ---
+# --- 3. 업데이트 함수 (에러 방어형) ---
 def target_update(spreadsheet, row_idx, col_letter, new_value, action, item, amount, target_user="-"):
     try:
         main_sheet = spreadsheet.sheet1
         cell_address = f"{col_letter}{row_idx + 2}"
-        main_sheet.update_acell(cell_address, int(new_value))
+        
+        # 1차 시도: 표준 업데이트
+        try:
+            main_sheet.update_acell(cell_address, int(new_value))
+        except:
+            # 2차 시도: 세션 헤더 재갱신 후 재시도 (AuthorizedSession 에러 방어)
+            client = get_final_stable_client()
+            spreadsheet = client.open_by_url(SHEET_URL)
+            spreadsheet.sheet1.update_acell(cell_address, int(new_value))
         
         # 로그 기록
         try:
@@ -77,7 +84,7 @@ def check_login(user_df):
         st.session_state.update({"logged_in": False, "user_id": "", "role": None})
     if st.session_state["logged_in"]: return True
 
-    st.title("🔐 창고 관리 시스템 로그인")
+    st.title("🔐 창고 관리 시스템")
     with st.form("login"):
         id_i = st.text_input("아이디").strip()
         pw_i = st.text_input("비밀번호", type="password").strip()
@@ -89,7 +96,7 @@ def check_login(user_df):
             else: st.error("정보 불일치")
     return False
 
-# --- 5. 메인 로직 (모든 메뉴 복구) ---
+# --- 5. 메인 로직 (기능 전체 통합) ---
 try:
     SHEET_URL = "https://docs.google.com/spreadsheets/d/1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY/edit#gid=0"
     main_raw, user_raw, spreadsheet = fetch_all_data(SHEET_URL)
@@ -119,7 +126,7 @@ try:
                             if role == "admin" and row[cols[0]] != user_id:
                                 t_amt = c3.number_input("회수", 1, int(row[cols[3]]), 1, key=f"t_{i}")
                                 if c3.button("즉시 회수", key=f"bt_{i}"):
-                                    target_update(spreadsheet, i, 'D', row[cols[3]] - t_amt, "회수", item, t_amt, row[cols[0]])
+                                    target_update(spreadsheet, i, 'D', row[cols[3]] - t_amt, "관리자 회수", item, t_amt, row[cols[0]])
                                     st.rerun()
 
             elif menu == "📥 내 물품 관리":
