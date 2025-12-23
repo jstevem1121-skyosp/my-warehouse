@@ -7,9 +7,9 @@ import time
 import streamlit.components.v1 as components
 
 # --- 1. 페이지 설정 ---
-st.set_page_config(page_title="고속 창고 관리 시스템", layout="wide")
+st.set_page_config(page_title="통합 창고 관리 시스템 v2", layout="wide")
 
-# --- 2. 구글 시트 연결 및 데이터 로드 함수 ---
+# --- 2. 구글 시트 연결 및 데이터 로드 최적화 ---
 @st.cache_resource
 def get_gspread_client():
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -18,43 +18,39 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_info, scopes=scope)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=10) # 캐시 유지 시간을 10초로 늘려 빈번한 API 호출 방지
+@st.cache_data(ttl=5)
 def fetch_all_data(sheet_url):
     client = get_gspread_client()
     spreadsheet = client.open_by_url(sheet_url)
     main_sheet = spreadsheet.sheet1
     user_sheet = spreadsheet.worksheet("사용자")
-    log_sheet = spreadsheet.worksheet("이력")
     
-    # 데이터를 한꺼번에 로드
+    # 데이터를 한꺼번에 로드하여 통신 횟수 감소
     main_data = main_sheet.get_all_records()
     user_data = user_sheet.get_all_records()
-    
     return main_data, user_data, spreadsheet
 
-# --- 3. 공통 업데이트 함수 (속도 핵심) ---
-def update_inventory(spreadsheet, df, action_desc, item_name, amount, target_user="-"):
-    """데이터프레임을 시트에 한 번에 업데이트하여 속도 개선"""
+# --- 3. 고속 업데이트 및 로그 함수 ---
+def commit_changes(spreadsheet, df, action, item, amount, target="-"):
+    """데이터프레임 전체를 한 번에 시트에 덮어쓰고 로그를 남김 (속도 최적화 핵심)"""
     try:
-        # 1. 메인 시트 업데이트 (전체 데이터를 덮어쓰는 것이 개별 수정보다 빠를 때가 많음)
-        # 하지만 행이 너무 많다면 범위를 지정해 업데이트 하는 것이 좋습니다.
+        # 1. 메인 재고 시트 업데이트 (Batch Update)
         main_sheet = spreadsheet.sheet1
-        # 리스트 형태로 변환 (헤더 포함)
         data_to_save = [df.columns.values.tolist()] + df.values.tolist()
-        main_sheet.update('A1', data_to_save) # 배치 업데이트
+        main_sheet.update('A1', data_to_save)
         
-        # 2. 로그 기록 (비동기 처리가 안 되므로 최대한 간결하게)
+        # 2. 이력 시트 기록
         log_sheet = spreadsheet.worksheet("이력")
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_sheet.append_row([now, st.session_state["user_id"], action_desc, item_name, int(amount), target_user])
+        log_sheet.append_row([now, st.session_state["user_id"], action, item, int(amount), target])
         
-        st.cache_data.clear() # 데이터 변했으므로 캐시 삭제
+        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"업데이트 오류: {e}")
+        st.error(f"⚠️ 데이터 저장 중 오류: {e}")
         return False
 
-# --- 4. 로그인 체크 ---
+# --- 4. 로그인 체크 로직 ---
 def check_login(user_df):
     if "logged_in" not in st.session_state:
         st.session_state.update({"logged_in": False, "user_id": "", "role": None})
@@ -69,7 +65,7 @@ def check_login(user_df):
             if not user_row.empty:
                 st.session_state.update({"logged_in": True, "user_id": id_i, "role": user_row.iloc[0]['권한']})
                 st.rerun()
-            else: st.error("❌ 정보 오류")
+            else: st.error("❌ 아이디 또는 비밀번호를 확인해주세요.")
     return False
 
 # --- 메인 실행부 ---
@@ -79,66 +75,110 @@ try:
     
     df = pd.DataFrame(main_raw)
     user_df = pd.DataFrame(user_raw)
-    cols = df.columns.tolist()
+    cols = df.columns.tolist() # [소유자, 품목명, 규격, 수량]
 
     if check_login(user_df):
         user_id = st.session_state["user_id"]
         role = st.session_state["role"]
         
-        st.sidebar.info(f"👤 {user_id}님 ({role})")
-        menu = st.sidebar.radio("메뉴", ["🏠 현황", "📥 관리/이동", "📜 이력", "📅 달력", "🆕 등록"])
+        st.sidebar.info(f"👤 {user_id}님 접속 중 ({role})")
+        menu_list = ["🏠 전체 품목 현황", "📥 내 물품 관리 및 이동", "📜 입출고 이력", "📅 일정 달력", "🆕 새 품목 등록"]
+        if role == "admin": menu_list.append("👥 계정 관리")
+        menu = st.sidebar.radio("메뉴 선택", menu_list)
 
-        # --- [1] 현황 & 관리자 회수 ---
-        if menu == "🏠 현황":
-            st.subheader("📊 전체 재고")
+        # --- [1] 전체 품목 현황 ---
+        if menu == "🏠 전체 품목 현황":
+            st.subheader("📊 전체 재고 소유 현황")
             items = df[df[cols[1]] != "신규 창고 개설"][cols[1]].unique()
             for item in items:
                 item_df = df[df[cols[1]] == item]
-                with st.expander(f"📦 {item} ({item_df[cols[3]].sum()}개)"):
+                with st.expander(f"📦 {item} (전체: {item_df[cols[3]].sum()}개)"):
                     for i, row in item_df[item_df[cols[3]] > 0].iterrows():
                         c1, c2, c3 = st.columns([2, 1, 2])
-                        c1.write(f"👤 {row[cols[0]]}")
-                        c2.write(f"🔢 {row[cols[3]]}")
+                        c1.write(f"👤 소유자: **{row[cols[0]]}**")
+                        c2.write(f"🔢 수량: {row[cols[3]]}")
                         if role == "admin" and row[cols[0]] != user_id:
-                            t_amt = c3.number_input("회수", 1, int(row[cols[3]]), 1, key=f"t_{i}")
-                            if c3.button("회수", key=f"bt_{i}"):
-                                # 메모리(DataFrame)상에서 먼저 계산
-                                df.at[i, cols[3]] -= t_amt
-                                my_idx = df[(df[cols[0]] == user_id) & (df[cols[1]] == row[cols[1]])].index
-                                if not my_idx.empty: df.at[my_idx[0], cols[3]] += t_amt
-                                else: df = df.append({cols[0]:user_id, cols[1]:row[cols[1]], cols[2]:row[cols[2]], cols[3]:t_amt}, ignore_index=True)
+                            t_amt = c3.number_input(f"회수량", 1, int(row[cols[3]]), 1, key=f"t_{i}")
+                            if c3.button(f"회수", key=f"btn_t_{i}"):
+                                df.at[i, cols[3]] -= t_amt # 상대방 차감
+                                my_idx = df[(df[cols[0]] == user_id) & (df[cols[1]] == row[cols[1]]) & (df[cols[2]] == row[cols[2]])].index
+                                if not my_idx.empty: df.at[my_idx[0], cols[3]] += t_amt # 내 수량 증가
+                                else: df = pd.concat([df, pd.DataFrame([{cols[0]:user_id, cols[1]:row[cols[1]], cols[2]:row[cols[2]], cols[3]:t_amt}])], ignore_index=True)
                                 
-                                if update_inventory(spreadsheet, df, "회수", row[cols[1]], t_amt, row[cols[0]]):
-                                    st.rerun()
+                                if commit_changes(spreadsheet, df, "관리자 회수", row[cols[1]], t_amt, row[cols[0]]):
+                                    st.success("회수 완료"); time.sleep(1); st.rerun()
 
-        # --- [2] 내 물품 관리 ---
-        elif menu == "📥 관리/이동":
-            my_df = df[df[cols[0]] == user_id]
-            for idx, row in my_df.iterrows():
-                if row[cols[1]] == "신규 창고 개설": continue
-                with st.expander(f"🔹 {row[cols[1]]} ({row[cols[3]]}개)"):
-                    c1, c2 = st.columns(2)
-                    amt = c1.number_input("수량", 1, 1000, 1, key=f"n_{idx}")
-                    if c1.button("입고", key=f"i_{idx}"):
-                        df.at[idx, cols[3]] += amt
-                        if update_inventory(spreadsheet, df, "입고", row[cols[1]], amt): st.rerun()
-                    
-                    target = c2.selectbox("받는 사람", [u for u in user_df['ID'] if u != user_id], key=f"s_{idx}")
-                    if c2.button("전송", key=f"ts_{idx}"):
-                        if row[cols[3]] >= amt:
-                            df.at[idx, cols[3]] -= amt
-                            t_idx = df[(df[cols[0]] == target) & (df[cols[1]] == row[cols[1]])].index
-                            if not t_idx.empty: df.at[t_idx[0], cols[3]] += amt
-                            else: # 신규 행 추가
-                                new_row = {cols[0]:target, cols[1]:row[cols[1]], cols[2]:row[cols[2]], cols[3]:amt}
-                                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                            
-                            if update_inventory(spreadsheet, df, "전송", row[cols[1]], amt, target): st.rerun()
+        # --- [2] 내 물품 관리 및 이동 ---
+        elif menu == "📥 내 물품 관리 및 이동":
+            st.subheader(f"📥 {user_id}님의 보관함")
+            my_df = df[(df[cols[0]] == user_id) & (df[cols[1]] != "신규 창고 개설")]
+            if my_df.empty: st.warning("내 창고에 물품이 없습니다.")
+            else:
+                for idx, row in my_df.iterrows():
+                    with st.expander(f"🔹 {row[cols[1]]} ({row[cols[3]]}개)"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            amt = st.number_input("조정 수량", 1, 1000, 1, key=f"a_{idx}")
+                            if st.button("➕ 입고", key=f"in_{idx}"):
+                                df.at[idx, cols[3]] += amt
+                                if commit_changes(spreadsheet, df, "입고", row[cols[1]], amt): st.rerun()
+                            if st.button("➖ 출고", key=f"out_{idx}"):
+                                if row[cols[3]] >= amt:
+                                    df.at[idx, cols[3]] -= amt
+                                    if commit_changes(spreadsheet, df, "출고", row[cols[1]], amt): st.rerun()
+                                else: st.error("재고 부족")
+                        with col2:
+                            u_list = [str(u).strip() for u in user_df['ID'] if str(u).strip() != user_id]
+                            target = st.selectbox("받는 사람", u_list, key=f"tg_{idx}")
+                            m_amt = st.number_input("보낼 수량", 1, int(row[cols[3]]) if int(row[cols[3]]) > 0 else 1, key=f"m_{idx}")
+                            if st.button("전송 실행", key=f"btn_s_{idx}"):
+                                df.at[idx, cols[3]] -= m_amt
+                                t_idx = df[(df[cols[0]] == target) & (df[cols[1]] == row[cols[1]]) & (df[cols[2]] == row[cols[2]])].index
+                                if not t_idx.empty: df.at[t_idx[0], cols[3]] += m_amt
+                                else: df = pd.concat([df, pd.DataFrame([{cols[0]:target, cols[1]:row[cols[1]], cols[2]:row[cols[2]], cols[3]:m_amt}])], ignore_index=True)
+                                
+                                if commit_changes(spreadsheet, df, "물품 전송", row[cols[1]], m_amt, target):
+                                    st.success("전송 완료"); time.sleep(1); st.rerun()
 
-        # --- [3] 이력 조회 (가장 빠르게) ---
-        elif menu == "📜 이력":
-            log_data = spreadsheet.worksheet("이력").get_all_records()
-            st.table(pd.DataFrame(log_data).iloc[::-1].head(20)) # 상위 20개만 빠르게 표시
+        # --- [3] 입출고 이력 조회 ---
+        elif menu == "📜 입출고 이력":
+            st.subheader("📜 최근 입출고 기록 (최신 50건)")
+            log_sheet = spreadsheet.worksheet("이력")
+            log_data = log_sheet.get_all_records()
+            if log_data:
+                st.table(pd.DataFrame(log_data).iloc[::-1].head(50))
+            else: st.info("기록이 없습니다.")
+
+        # --- [4] 일정 달력 ---
+        elif menu == "📅 일정 달력":
+            st.subheader("📅 창고 일정")
+            calendar_url = "https://calendar.google.com/calendar/embed?src=ko.south_korea%23holiday%40group.v.calendar.google.com&ctz=Asia%2FSeoul"
+            components.iframe(calendar_url, height=600)
+
+        # --- [5] 새 품목 등록 ---
+        elif menu == "🆕 새 품목 등록":
+            with st.form("new_item"):
+                n = st.text_input("품목명").strip()
+                s = st.text_input("규격").strip()
+                q = st.number_input("초기 수량", 0)
+                if st.form_submit_button("등록"):
+                    if n:
+                        new_row = {cols[0]:user_id, cols[1]:n, cols[2]:s, cols[3]:q}
+                        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                        if commit_changes(spreadsheet, df, "신규 등록", n, q):
+                            st.success(f"'{n}' 등록 완료"); time.sleep(1); st.rerun()
+
+        # --- [6] 계정 관리 ---
+        elif menu == "👥 계정 관리" and role == "admin":
+            with st.form("new_user"):
+                u, p = st.text_input("아이디"), st.text_input("비번")
+                r = st.selectbox("권한", ["user", "admin"])
+                if st.form_submit_button("계정 생성"):
+                    spreadsheet.worksheet("사용자").append_row([u, p, r])
+                    # 목록 노출을 위한 가짜 데이터 추가
+                    df = pd.concat([df, pd.DataFrame([{cols[0]:u, cols[1]:"신규 창고 개설", cols[2]:"-", cols[3]:0}])], ignore_index=True)
+                    commit_changes(spreadsheet, df, "계정 생성", u, 0)
+                    st.success("생성 완료"); st.rerun()
 
 except Exception as e:
-    st.error(f"오류: {e}")
+    st.error(f"⚠️ 시스템 오류: {e}")
