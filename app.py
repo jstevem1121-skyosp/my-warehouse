@@ -6,18 +6,22 @@ import requests
 from datetime import datetime
 import streamlit.components.v1 as components
 
-# --- 1. 페이지 및 디자인 설정 ---
-st.set_page_config(page_title="통합 관리 시스템 v7.1", layout="wide")
+# --- 1. 페이지 및 디자인 설정 (이미지 스타일 반영) ---
+st.set_page_config(page_title="통합 관리 시스템 v7.3", layout="wide")
 
 st.markdown("""
     <style>
+    /* 상단 메뉴바 스타일 */
+    .nav-bar { display: flex; gap: 20px; font-weight: bold; border-bottom: 2px solid #00bcd4; padding-bottom: 10px; margin-bottom: 20px; font-size: 14px; }
+    /* 테이블 디자인 */
+    thead tr th { background-color: #5d6d7e !important; color: white !important; font-size: 13px; }
+    /* 탭 스타일 */
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] { height: 45px; font-size: 14px; }
-    thead tr th { background-color: #5d6d7e !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 구글 API 통신 엔진 ---
+# --- 2. 구글 API 엔진 (v7.1과 동일) ---
 def get_access_token():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
     creds_info = dict(st.secrets["gcp_service_account"])
@@ -32,14 +36,12 @@ def google_api_request(method, range_name, values=None):
     sheet_id = "1n68yPElTJxguhZUSkBm4rPgAB_jIhh2Il7RY3z9hIbY"
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{range_name}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    params = {"valueInputOption": "USER_ENTERED"}
     try:
         if method == "GET":
             resp = requests.get(url, headers=headers)
             return resp.json().get('values', [])
         elif method == "APPEND":
-            body = {"values": values}
-            requests.post(f"{url}:append", headers=headers, params=params, json=body)
+            requests.post(f"{url}:append", headers=headers, params={"valueInputOption": "USER_ENTERED"}, json={"values": values})
         return True
     except: return None
 
@@ -48,16 +50,14 @@ def load_all_data():
     inv_rows = google_api_request("GET", "inventory_data!A:E")
     user_rows = google_api_request("GET", "사용자!A:C")
     as_rows = google_api_request("GET", "as_data!A:J")
-    log_rows = google_api_request("GET", "이력!A:F") # 재고 이동 이력
+    log_rows = google_api_request("GET", "이력!A:F")
     
-    inv_df = pd.DataFrame(inv_rows[1:], columns=inv_rows[0]) if inv_rows else pd.DataFrame()
-    u_df = pd.DataFrame(user_rows[1:], columns=user_rows[0]) if user_rows else pd.DataFrame()
-    as_df = pd.DataFrame(as_rows[1:], columns=as_rows[0]) if as_rows else pd.DataFrame()
-    log_df = pd.DataFrame(log_rows[1:], columns=log_rows[0]) if log_rows else pd.DataFrame()
-    
-    return inv_df, u_df, as_df, log_df
+    return (pd.DataFrame(inv_rows[1:], columns=inv_rows[0]) if inv_rows else pd.DataFrame(),
+            pd.DataFrame(user_rows[1:], columns=user_rows[0]) if user_rows else pd.DataFrame(),
+            pd.DataFrame(as_rows[1:], columns=as_rows[0]) if as_rows else pd.DataFrame(),
+            pd.DataFrame(log_rows[1:], columns=log_rows[0]) if log_rows else pd.DataFrame())
 
-# --- 3. 메인 기능 구성 ---
+# --- 3. 메인 실행부 ---
 inv_df, user_df, as_df, log_df = load_all_data()
 
 if "logged_in" not in st.session_state:
@@ -73,26 +73,40 @@ if not st.session_state["logged_in"]:
                 if not u_row.empty:
                     st.session_state.update({"logged_in": True, "user_id": id_i, "role": u_row.iloc[0, 2]})
                     st.rerun()
-            st.error("로그인 실패")
 else:
+    # 사이드바 메뉴 (v7.1 대메뉴 유지)
     st.sidebar.title(f"👤 {st.session_state['user_id']}님")
-    menu = st.sidebar.radio("대메뉴", ["🛠️ AS 관리", "📦 창고/재고 관리", "📜 전체 이력 관리", "📅 일정 달력"])
+    menu = st.sidebar.radio("메뉴 선택", ["🛠️ AS 관리 (접수/현황)", "📦 창고/재고 관리", "📜 전체 이력 관리", "📅 일정 달력"])
 
-    # --- [A] AS 관리 (접수 및 현황) ---
-    if menu == "🛠️ AS 관리":
-        tab_as1, tab_as2 = st.tabs(["📝 AS 접수 신청", "📋 AS 실시간 현황"])
-        with tab_as1:
+    # 상단 장식용 메뉴바 (이미지 스타일)
+    st.markdown('<div class="nav-bar"><span>HOME</span> | <span style="color: #00bcd4;">A/S접수</span> | <span>재고현황</span> | <span>자재목록</span></div>', unsafe_allow_html=True)
+
+    # --- [A] AS 관리: 접수와 현황을 한 화면 2분할로 (이미지 스타일) ---
+    if menu == "🛠️ AS 관리 (접수/현황)":
+        col_f, col_t = st.columns([1, 1.5])
+        with col_f:
             st.subheader("📝 AS 접수 신청")
-            with st.container(border=True):
-                # ... (이전 AS 접수 양식 코드와 동일)
-                st.info("이미지 ac1beb 양식에 따른 접수 기능을 수행합니다.")
-                if st.button("🚀 샘플 접수"): st.success("접수 완료")
-
-        with tab_as2:
-            st.subheader("📋 AS 현재 진행 상태")
+            with st.form("as_form", clear_on_submit=True):
+                ano = datetime.now().strftime("%y%m%d%H%M%S")
+                st.text_input("접수번호*", value=ano, disabled=True)
+                apt = st.selectbox("아파트명*", ["아파트 선택", "고덕래미안힐스테이트", "공덕자이", "자양동스타시티"])
+                dong = st.text_input("동*")
+                ho = st.text_input("호*")
+                name = st.text_input("신청자명*")
+                phone = st.text_input("연락처*")
+                st.write("**고장위치**")
+                lc1, lc2, lc3 = st.columns(3)
+                l1, l2, l3 = lc1.checkbox("공용"), lc2.checkbox("부부"), lc3.checkbox("환기")
+                desc = st.text_area("내용")
+                if st.form_submit_button("🚀 접수하기"):
+                    loc_val = f"{'공용 ' if l1 else ''}{'부부 ' if l2 else ''}{'환기' if l3 else ''}"
+                    google_api_request("APPEND", "as_data!A:J", [[ano, datetime.now().strftime("%Y-%m-%d"), apt, dong, ho, name, phone, loc_val, desc, "신청"]])
+                    st.cache_data.clear(); st.rerun()
+        with col_t:
+            st.subheader("📋 실시간 접수 현황")
             st.dataframe(as_df.iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- [B] 창고/재고 관리 ---
+    # --- [B] 창고/재고 관리 (2분할 레이아웃) ---
     elif menu == "📦 창고/재고 관리":
         col_l, col_r = st.columns([1, 1.8])
         with col_l:
@@ -103,28 +117,17 @@ else:
             st.subheader(f"📦 {target_u} 재고 상세")
             u_inv = inv_df[inv_df.iloc[:, 0] == target_u]
             if not u_inv.empty:
-                # 중복 항목 합산 처리
                 summary = u_inv.groupby([inv_df.columns[1], inv_df.columns[2]])[inv_df.columns[3]].sum().reset_index()
                 st.dataframe(summary, use_container_width=True, hide_index=True)
 
-    # --- [C] 이력 분리 관리 (사용자 요청 핵심 기능) ---
+    # --- [C] 전체 이력 관리 (v7.1 요청사항: 탭 분리) ---
     elif menu == "📜 전체 이력 관리":
         st.subheader("📜 데이터 이력 조회")
-        tab_log1, tab_log2 = st.tabs(["🚛 재고 이동(입고/전송) 이력", "🛠️ AS 접수 이력"])
-        
-        with tab_log1:
-            st.info("재고의 입고 및 창고 간 이동 내역입니다.")
-            if not log_df.empty:
-                st.dataframe(log_df.iloc[::-1], use_container_width=True, hide_index=True)
-            else:
-                st.warning("기록된 재고 이동 이력이 없습니다.")
-                
-        with tab_log2:
-            st.info("과거부터 현재까지 접수된 모든 AS 내역입니다.")
-            if not as_df.empty:
-                st.dataframe(as_df.iloc[::-1], use_container_width=True, hide_index=True)
-            else:
-                st.warning("기록된 AS 이력이 없습니다.")
+        tab1, tab2 = st.tabs(["🚛 재고 이동 이력", "🛠️ AS 접수 이력"])
+        with tab1:
+            st.dataframe(log_df.iloc[::-1], use_container_width=True, hide_index=True)
+        with tab2:
+            st.dataframe(as_df.iloc[::-1], use_container_width=True, hide_index=True)
 
     # --- [D] 일정 달력 ---
     elif menu == "📅 일정 달력":
